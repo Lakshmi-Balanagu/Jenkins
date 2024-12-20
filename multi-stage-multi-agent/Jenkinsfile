@@ -14,15 +14,7 @@ pipeline {
         docker { image 'node:16-alpine' }
       }
       steps {
-        sh 'node --version'
-      }
-    }
-    stage('DB') {
-      agent {
-        docker { image 'mysql:latest' }
-      }
-      steps {
-        sh 'which mysqld'
+        sh 'cd nodejs-server && npm install'
       }
     }
   }
