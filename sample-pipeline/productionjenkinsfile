@@ -1,0 +1,94 @@
+pipeline {
+    agent any
+
+    environment {
+        // Set environment variables
+        AWS_REGION = 'us-west-2'
+        ECR_REPO = 'your-ecr-repository-url'
+        IMAGE_NAME = 'your-image-name'
+        IMAGE_TAG = "${GIT_COMMIT}"
+        KUBERNETES_DEPLOYMENT = 'your-k8s-deployment-name'
+        KUBERNETES_NAMESPACE = 'default'  // Or your specific namespace
+        DOCKER_REGISTRY = 'aws_account_id.dkr.ecr.us-west-2.amazonaws.com'
+    }
+
+    stages {
+        stage('Build') {
+            steps {
+                script {
+                    // Build the Java project using Maven
+                    echo "Building the project using Maven..."
+                    sh 'mvn clean install -DskipTests'  // or use Gradle if preferred
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                script {
+                    // Run unit tests
+                    echo "Running unit tests..."
+                    sh 'mvn test'  // or use Gradle test task
+                }
+            }
+        }
+
+        stage('Dockerize') {
+            steps {
+                script {
+                    // Login to AWS ECR (Elastic Container Registry)
+                    echo "Logging into AWS ECR..."
+                    sh '''
+                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $DOCKER_REGISTRY
+                    '''
+
+                    // Build Docker image
+                    echo "Building Docker image..."
+                    sh '''
+                    docker build -t $IMAGE_NAME:$IMAGE_TAG .
+                    '''
+
+                    // Tag Docker image for ECR
+                    echo "Tagging Docker image..."
+                    sh '''
+                    docker tag $IMAGE_NAME:$IMAGE_TAG $ECR_REPO:$IMAGE_TAG
+                    '''
+                    
+                    // Push Docker image to ECR
+                    echo "Pushing Docker image to ECR..."
+                    sh '''
+                    docker push $ECR_REPO:$IMAGE_TAG
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                script {
+                    // Set up AWS credentials (if not already set up on Jenkins)
+                    echo "Configuring AWS credentials..."
+                    sh '''
+                    aws eks --region $AWS_REGION update-kubeconfig --name your-cluster-name
+                    '''
+
+                    // Update the Kubernetes deployment with the new Docker image
+                    echo "Deploying to EKS..."
+                    sh '''
+                    kubectl set image deployment/$KUBERNETES_DEPLOYMENT $KUBERNETES_DEPLOYMENT=$ECR_REPO:$IMAGE_TAG --namespace $KUBERNETES_NAMESPACE
+                    kubectl rollout status deployment/$KUBERNETES_DEPLOYMENT --namespace $KUBERNETES_NAMESPACE
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline executed successfully!"
+        }
+        failure {
+            echo "Pipeline execution failed!"
+        }
+    }
+}
